@@ -5,8 +5,10 @@ The sun is centred at the origin (0,0,0)
 """
 
 #constants and fixed parameters 
-GRAVITATIONAL = 0
-SUN_MASS = 0
+GRAVITATIONAL = 6.6743e-11 #m^3 kg^-1 s^-2
+SUN_MASS = 1.989e30 #kg
+SAIL_AREA = 10 #m^2
+
 
 
 # input: position vector of the solar sail 
@@ -19,12 +21,12 @@ def distance_from_sun(position):
 
 # a_g = -GMr/r^3
 def a_due_to_gravity(position):
-    term = GRAVITATIONAL * SUN_MASS / (distance_from_sun(position))**3 
-    return term * position 
+    scalar_term = GRAVITATIONAL * SUN_MASS / (distance_from_sun(position))**3 
+    return scalar_term * position 
 
 # input: the position vector of the solar sail 
 # output: the direction the solar sail is travelling in (vector)
 def direction_unit_vector(position):
-    pass
+    return np.linalg.norm(position)
 
 def 
