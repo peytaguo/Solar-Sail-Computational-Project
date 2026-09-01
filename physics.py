@@ -7,18 +7,27 @@ The sun is centred at the origin (0,0,0)
 
 #constants and fixed parameters 
 GRAVITATIONAL = 6.6743e-11 #m^3 kg^-1 s^-2
-SUN_MASS = 1.989e30 #kg
-SAIL_AREA = 10 #m^2
-SUN_IRRADIANCE = 1361 # watt/m^2 at 1AU
 SPEED_LIGHT = 299792458 #m/s
-R = 1 #the fraction of photons that undergo specular reflection
 AU = 1.496e11 #distance of Earth from Sun in metres 
+DT = 1 #timestep
+
+SUN_IRRADIANCE = 1361 # watt/m^2 at 1AU
+SUN_MASS = 1.989e30 #kg
+
+SAIL_AREA = 10 #m^2
+MASS = 100 #mass of spacecraft kg
+R = 1 #the fraction of photons that undergo specular reflection
+
 
 position_vector = np.array( (AU,0,0) )
 velocity_vector = np.array( (0,0,0) )
 
 a_angle = 0 #angle between sail normal and sunlight
 b_angle = 0 #which way around the sail is tilt
+
+#important parameters of the solar sail combined into one vector 
+solar_sail_state = np.array([AU,0,0,0,0,0]) #x,y,z, vx, vy, vz
+
 
 # input: p
 # output: the magnitude distance from the sun (scalar)
@@ -36,6 +45,7 @@ def a_due_to_gravity():
 # output: the direction vector of photon reaching solar sail
 def sun_unit_vector():
     return position_vector / np.linalg.norm(position_vector)
+
 
 #input: the velocity vector of the solar sail
 #output: the vector perpendicular to sun unit vector and perpendicular to the orbital plane 
@@ -69,6 +79,7 @@ def solar_sail_normal_vector():
 
     return s_component * s + t_component * t + n_component * n 
 
+
 # input: position of solar sail 
 # output: the radiant power per unit area hitting the solar sail at given position (scalar)
 def irradiance():
@@ -100,6 +111,46 @@ def dF_absorbed():
 def total_force_radiation():
     return dF_reflection() + dF_absorbed()
 
+def total_acceleration():
+    return a_due_to_gravity() + total_force_radiation() / MASS
+
+
+#calculate both velocity and position vectors first before updating!
+
+#########################################################################################
+#using Euler integration, this will end up having significant numerical errors, 
+#will fix later
+#input:
+#output: the velocity vector of the spacecraft in the next time step 
+def update_velocity():
+    current_velocity = velocity_vector 
+    return current_velocity + total_acceleration()*DT
+
+#input:
+#output: the position vecotr of the spacecraft in the next time step
+def update_position():
+    current_position = position_vector
+    return current_position + velocity_vector*DT
+
+#input:
+#output: returns the correct updated position and velocity vectors 
+def update_state():
+
+    next_velocity = update_velocity()
+    next_position = update_position()
+
+    return next_position, next_velocity 
+#########################################################################################
+
+def eq_motion():
+    current_state = solar_sail_state
+    current_velocity = current_state[3:]
+
+    acceleration = total_acceleration()
+
+    return np.concatenate(current_velocity, acceleration)
+
+#position_vector, velocity_vector = update_state()
 
 # Testing 
 position_vector = np.array([AU, 0.0, 0.0])
