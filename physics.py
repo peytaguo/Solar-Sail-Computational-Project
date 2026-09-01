@@ -26,7 +26,10 @@ a_angle = 0 #angle between sail normal and sunlight
 b_angle = 0 #which way around the sail is tilt
 
 #important parameters of the solar sail combined into one vector 
-solar_sail_state = np.array([AU,0,0,0,0,0]) #x,y,z, vx, vy, vz
+solar_sail_state = np.array(
+    [AU, 0, 0, 0, 0, 0, 0],
+    dtype=float
+)  # x, y, z, vx, vy, vz, t
 
 
 # input: p
@@ -122,9 +125,10 @@ def total_acceleration():
 #will fix later
 #input:
 #output: the velocity vector of the spacecraft in the next time step 
+#JUST GRAVITY
 def update_velocity():
     current_velocity = velocity_vector 
-    return current_velocity + total_acceleration()*DT
+    return current_velocity + a_due_to_gravity()*DT
 
 #input:
 #output: the position vecotr of the spacecraft in the next time step
@@ -142,22 +146,58 @@ def update_state():
     return next_position, next_velocity 
 #########################################################################################
 
-def eq_motion():
+
+def integrate(time):
+    global position_vector, velocity_vector
+
+    t = 0.0
+
+    state_history = [
+        np.concatenate((position_vector, velocity_vector, [t]))
+    ]
+
+    while t < time:
+        next_position, next_velocity = update_state()
+
+        position_vector = next_position
+        velocity_vector = next_velocity
+
+        t += DT
+
+        current_state = np.concatenate(
+            (position_vector, velocity_vector, [t])
+        )
+
+        state_history.append(current_state.copy())
+
+    return np.array(state_history)
+
+
+
+"""def eq_motion():
     current_state = solar_sail_state
     current_velocity = current_state[3:]
 
     acceleration = total_acceleration()
 
-    return np.concatenate(current_velocity, acceleration)
+    return np.concatenate(current_velocity, acceleration)"""
+
+"""def eq_motion_just_gravity():
+    current_state = solar_sail_state
+    current_velocity = current_state[3:]
+
+    acceleration = a_due_to_gravity()
+
+    return np.concatenate(current_velocity, acceleration)"""
 
 #position_vector, velocity_vector = update_state()
 
 # Testing 
-position_vector = np.array([AU, 0.0, 0.0])
-velocity_vector = np.array([0.0, 29780.0, 0.0])
+#position_vector = np.array([AU, 0.0, 0.0])
+#velocity_vector = np.array([0.0, 29780.0, 0.0])
 
-a_angle = 0
-b_angle = 0
+#a_angle = 0
+#b_angle = 0
 
-print(irradiance())
-print(total_force_radiation())
+#print(irradiance())
+#print(total_force_radiation())
