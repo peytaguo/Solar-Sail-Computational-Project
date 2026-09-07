@@ -126,7 +126,7 @@ def total_acceleration():
 #input:
 #output: the velocity vector of the spacecraft in the next time step 
 #JUST GRAVITY
-def update_velocity():
+def update_velocity_justg():
     current_velocity = velocity_vector 
     return current_velocity + a_due_to_gravity()*DT
 
@@ -138,16 +138,16 @@ def update_position():
 
 #input:
 #output: returns the correct updated position and velocity vectors 
-def update_state():
+def update_state_justg():
 
-    next_velocity = update_velocity()
+    next_velocity = update_velocity_justg()
     next_position = update_position()
 
     return next_position, next_velocity 
 #########################################################################################
 
 
-def integrate(time):
+def integrate_justg(time):
     global position_vector, velocity_vector
 
     t = 0.0
@@ -157,7 +157,7 @@ def integrate(time):
     ]
 
     while t < time:
-        next_position, next_velocity = update_state()
+        next_position, next_velocity = update_state_justg()
 
         position_vector = next_position
         velocity_vector = next_velocity
