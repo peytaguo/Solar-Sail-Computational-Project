@@ -14,8 +14,8 @@ DT = 1 #timestep
 SUN_IRRADIANCE = 1361 # watt/m^2 at 1AU
 SUN_MASS = 1.989e30 #kg
 
-SAIL_AREA = 10 #m^2
-MASS = 100 #mass of spacecraft kg
+SAIL_AREA = 80 #m^2 #80m^2 approximately using NASA's solar sail from: https://www.nasa.gov/smallspacecraft/what-is-acs3/ 
+MASS = 16 #mass of spacecraft kg from: https://ntrs.nasa.gov/api/citations/20230008378/downloads/Wilkie_ACS3_mission_update_ISSS_2023_20230530_rev_a.pdf 
 R = 1 #the fraction of photons that undergo specular reflection
 
 
