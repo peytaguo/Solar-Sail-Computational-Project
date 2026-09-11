@@ -130,6 +130,11 @@ def update_velocity_justg():
     current_velocity = velocity_vector 
     return current_velocity + a_due_to_gravity()*DT
 
+#with sails on
+def update_velocity():
+    current_velocity = velocity_vector
+    return current_velocity + total_acceleration()*DT
+
 #input:
 #output: the position vecotr of the spacecraft in the next time step
 def update_position():
@@ -139,8 +144,14 @@ def update_position():
 #input:
 #output: returns the correct updated position and velocity vectors 
 def update_state_justg():
-
     next_velocity = update_velocity_justg()
+    next_position = update_position()
+
+    return next_position, next_velocity 
+
+#with sails on 
+def update_state():
+    next_velocity = update_velocity()
     next_position = update_position()
 
     return next_position, next_velocity 
@@ -172,7 +183,30 @@ def integrate_justg(time):
 
     return np.array(state_history)
 
+def integrate(time):
+    global position_vector, velocity_vector
 
+    t = 0.0
+
+    state_history = [
+        np.concatenate((position_vector, velocity_vector, [t]))
+    ]
+
+    while t < time:
+        next_position, next_velocity = update_state()
+
+        position_vector = next_position
+        velocity_vector = next_velocity
+
+        t += DT
+
+        current_state = np.concatenate(
+            (position_vector, velocity_vector, [t])
+        )
+
+        state_history.append(current_state.copy())
+
+    return np.array(state_history)
 
 """def eq_motion():
     current_state = solar_sail_state
