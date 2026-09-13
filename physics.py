@@ -224,6 +224,35 @@ def integrate(time):
 
     return np.concatenate(current_velocity, acceleration)"""
 
+
+#integrates upto an orbit, with a max time limit. 
+# Returns the history of the integration and whether or not the orbit was reached.
+def integrate_to_orbit(orbit_radius, max_time):
+    global position_vector, velocity_vector
+    t = 0.0 
+    
+    state_history = [
+            np.concatenate((position_vector, velocity_vector, [t]))
+        ]
+
+    while np.linalg.norm(position_vector) < orbit_radius and t < max_time:
+        next_position, next_velocity = update_state()
+
+        position_vector = next_position
+        velocity_vector = next_velocity
+
+        t += DT
+
+        current_state = np.concatenate(
+            (position_vector, velocity_vector, [t])
+        )
+
+        state_history.append(current_state.copy())
+
+    reached_orbit = np.linalg.norm(position_vector) >= orbit_radius
+
+    return np.array(state_history), reached_orbit
+
 #position_vector, velocity_vector = update_state()
 
 # Testing 
