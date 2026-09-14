@@ -13,10 +13,11 @@ DT = 1 #timestep
 
 SUN_IRRADIANCE = 1361 # watt/m^2 at 1AU
 SUN_MASS = 1.989e30 #kg
+SUN_RADIUS = 6.957e8
 
 SAIL_AREA = 80 #m^2 #80m^2 approximately using NASA's solar sail from: https://www.nasa.gov/smallspacecraft/what-is-acs3/ 
 MASS = 16 #mass of spacecraft kg from: https://ntrs.nasa.gov/api/citations/20230008378/downloads/Wilkie_ACS3_mission_update_ISSS_2023_20230530_rev_a.pdf 
-R = 1 #the fraction of photons that undergo specular reflection
+R = 0.82 #the fraction of photons that undergo specular reflection
 
 
 position_vector = np.array( (AU,0,0) )
@@ -249,9 +250,40 @@ def integrate_to_orbit(orbit_radius, max_time):
 
         state_history.append(current_state.copy())
 
+        if np.linalg.norm(position_vector) <= SUN_RADIUS:
+            return np.array(state_history), -1000
+
     reached_orbit = np.linalg.norm(position_vector) >= orbit_radius
 
     return np.array(state_history), reached_orbit
+
+def integrate_without_history(orbit_radius, max_time):
+    global position_vector, velocity_vector
+
+    t = 0.0
+
+    orbit_radius_sq = orbit_radius**2
+    sun_radius_sq = SUN_RADIUS**2
+
+    r_sq = np.dot(position_vector, position_vector)
+
+    while r_sq < orbit_radius_sq and t < max_time:
+
+        next_position, next_velocity = update_state()
+
+        position_vector = next_position
+        velocity_vector = next_velocity
+
+        t += DT
+
+        r_sq = np.dot(position_vector, position_vector)
+
+        if r_sq <= sun_radius_sq:
+            return position_vector.copy(), t, -1000
+
+    reached_orbit = r_sq >= orbit_radius_sq
+
+    return position_vector.copy(), t, reached_orbit
 
 #position_vector, velocity_vector = update_state()
 
