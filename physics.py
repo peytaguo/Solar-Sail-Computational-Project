@@ -18,6 +18,7 @@ SUN_RADIUS = 6.957e8 #in m
 MARS_DISTANCE = 1.524*AU
 MARS_MASS = 6.417e23 #in kg
 MARS_RADIUS = 3389.5e3 # in m
+MARS_HILL_RADIUS = MARS_DISTANCE * (MARS_MASS / SUN_MASS) ** (1/3)
 
 SAIL_AREA = 80 #m^2 #80m^2 approximately using NASA's solar sail from: https://www.nasa.gov/smallspacecraft/what-is-acs3/ 
 MASS = 16 #mass of spacecraft kg from: https://ntrs.nasa.gov/api/citations/20230008378/downloads/Wilkie_ACS3_mission_update_ISSS_2023_20230530_rev_a.pdf 
@@ -347,6 +348,11 @@ def stage_1(stage_1_distance, max_time, mars_start_phase):
             np.concatenate((position_vector, velocity_vector, [t]))
         ]
 
+    mars_state_history =[
+        np.concatenate((mars_position_vector, [t]))
+    ]
+        
+
     while np.linalg.norm(sc_to_mars_vector()) > stage_1_distance and t < max_time:
         next_position, next_velocity = update_state_w_mars()
 
@@ -361,17 +367,24 @@ def stage_1(stage_1_distance, max_time, mars_start_phase):
             (position_vector, velocity_vector, [t])
         )
 
+        mars_current_state = np.concatenate(
+            (mars_position_vector, [t])
+        )
+        
+
         state_history.append(current_state.copy())
 
+        mars_state_history.append(mars_current_state.copy())
+
         if np.linalg.norm(position_vector) <= SUN_RADIUS:
-            return np.array(state_history), "crashed into Sun"
+            return np.array(state_history), np.array(mars_state_history), "crashed into Sun"
         elif np.linalg.norm(sc_to_mars_vector()) <= MARS_RADIUS:
-            return np.array(state_history), "crashed into Mars"
+            return np.array(state_history), np.array(mars_state_history), "crashed into Mars"
 
     if np.linalg.norm(sc_to_mars_vector()) <= stage_1_distance:
-        return np.array(state_history), sc_to_mars_vector()
+        return np.array(state_history), np.array(mars_state_history), sc_to_mars_vector()
     else:
-        return np.array(state_history), "Stage 1 fail under time limit"
+        return np.array(state_history), np.array(mars_state_history), "Stage 1 fail under time limit"
 
 def stage_1_without_history(stage_1_distance, max_time, mars_start_phase):
     global position_vector, velocity_vector, mars_position_vector
