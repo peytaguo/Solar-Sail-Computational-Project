@@ -13,15 +13,19 @@ DT = 1 #timestep
 
 SUN_IRRADIANCE = 1361 # watt/m^2 at 1AU
 SUN_MASS = 1.989e30 #kg
-SUN_RADIUS = 6.957e8
+SUN_RADIUS = 6.957e8 #in m
+
+MARS_DISTANCE = 1.524*AU
+MARS_MASS = 6.417e23 #in kg
+MARS_RADIUS = 3389.5e3 # in m
 
 SAIL_AREA = 80 #m^2 #80m^2 approximately using NASA's solar sail from: https://www.nasa.gov/smallspacecraft/what-is-acs3/ 
 MASS = 16 #mass of spacecraft kg from: https://ntrs.nasa.gov/api/citations/20230008378/downloads/Wilkie_ACS3_mission_update_ISSS_2023_20230530_rev_a.pdf 
 R = 0.82 #the fraction of photons that undergo specular reflection
 
+position_vector = np.array( (AU,0,0) ) #position vector of spacecraft from the sun
+velocity_vector = np.array( (0,0,0) ) #velocity of spacecraft
 
-position_vector = np.array( (AU,0,0) )
-velocity_vector = np.array( (0,0,0) )
 
 a_angle = 0 #angle between sail normal and sunlight
 b_angle = 0 #which way around the sail is tilt
@@ -117,7 +121,6 @@ def total_force_radiation():
 
 def total_acceleration():
     return a_due_to_gravity() + total_force_radiation() / MASS
-
 
 #calculate both velocity and position vectors first before updating!
 
@@ -284,6 +287,118 @@ def integrate_without_history(orbit_radius, max_time):
     reached_orbit = r_sq >= orbit_radius_sq
 
     return position_vector.copy(), t, reached_orbit
+
+##########################################################
+# incoporation of gravitational force from Mars
+
+mars_position_vector = np.array( (MARS_DISTANCE, 0,0) ) #the position vector of mars from the Sun
+
+def sc_to_mars_vector():
+    return mars_position_vector - position_vector
+
+def a_due_to_mars():
+    distance =  np.linalg.norm(sc_to_mars_vector())
+    unit_vector = sc_to_mars_vector()/distance
+
+    magnitude = GRAVITATIONAL * MARS_MASS / (distance ** 2 )
+    return magnitude * unit_vector
+
+def total_acceleration_w_mars():
+     return a_due_to_gravity() + total_force_radiation() / MASS + a_due_to_mars()
+
+def update_velocity_w_mars():
+    current_velocity = velocity_vector
+    return current_velocity + DT*total_acceleration_w_mars()
+
+def update_position_w_mars():
+    current_position = position_vector
+    return current_position + DT*update_velocity_w_mars()
+
+def update_state_w_mars():
+    next_velocity = update_velocity_w_mars()
+    next_position = update_position_w_mars()
+
+    return next_position, next_velocity
+
+def update_mars_velocity(time, mars_start_phase):
+    angular_velocity = math.sqrt( GRAVITATIONAL * SUN_MASS / (MARS_DISTANCE ** 3) )
+    magnitude = MARS_DISTANCE * angular_velocity
+    x_coord = -math.sin( angular_velocity * time + mars_start_phase )
+    y_coord = math.cos( angular_velocity * time + mars_start_phase )
+
+    return magnitude * np.array( [x_coord, y_coord, 0] )
+
+def update_mars_position(time, mars_start_phase):
+    angular_velocity = math.sqrt( GRAVITATIONAL * SUN_MASS / (MARS_DISTANCE ** 3) )
+    magnitude = MARS_DISTANCE
+    x_coord = math.cos(angular_velocity * time + mars_start_phase)
+    y_coord = math.sin(angular_velocity * time + mars_start_phase)
+
+    return magnitude * np.array([x_coord, y_coord, 0])
+
+def stage_1(stage_1_distance, max_time, mars_start_phase):
+    global position_vector, velocity_vector, mars_position_vector
+
+    mars_position_vector = update_mars_position(0.0, mars_start_phase)
+
+    t = 0.0 
+    
+    state_history = [
+            np.concatenate((position_vector, velocity_vector, [t]))
+        ]
+
+    while np.linalg.norm(sc_to_mars_vector()) > stage_1_distance and t < max_time:
+        next_position, next_velocity = update_state_w_mars()
+
+        position_vector = next_position
+        velocity_vector = next_velocity
+
+        t += DT
+
+        mars_position_vector = update_mars_position(t, mars_start_phase)
+
+        current_state = np.concatenate(
+            (position_vector, velocity_vector, [t])
+        )
+
+        state_history.append(current_state.copy())
+
+        if np.linalg.norm(position_vector) <= SUN_RADIUS:
+            return np.array(state_history), "crashed into Sun"
+        elif np.linalg.norm(sc_to_mars_vector()) <= MARS_RADIUS:
+            return np.array(state_history), "crashed into Mars"
+
+    if np.linalg.norm(sc_to_mars_vector()) <= stage_1_distance:
+        return np.array(state_history), sc_to_mars_vector()
+    else:
+        return np.array(state_history), "Stage 1 fail under time limit"
+
+def stage_1_without_history(stage_1_distance, max_time, mars_start_phase):
+    global position_vector, velocity_vector, mars_position_vector
+
+    t = 0.0 
+
+    mars_position_vector = update_mars_position(0.0, mars_start_phase)
+
+    while np.linalg.norm(sc_to_mars_vector()) > stage_1_distance and t < max_time:
+        next_position, next_velocity = update_state_w_mars()
+
+        position_vector = next_position
+        velocity_vector = next_velocity
+
+        t += DT
+
+        mars_position_vector = update_mars_position(t, mars_start_phase)
+
+        if np.linalg.norm(position_vector) <= SUN_RADIUS:
+            return sc_to_mars_vector(), t, "crashed into Sun"
+        elif np.linalg.norm(sc_to_mars_vector()) <= MARS_RADIUS:
+            return sc_to_mars_vector(), t, "crashed into Mars"
+
+    if np.linalg.norm(sc_to_mars_vector()) <= stage_1_distance:
+        return sc_to_mars_vector(), t, "Stage 1 success"
+    else:
+        return sc_to_mars_vector(), t, "Stage 1 fail under time limit"
 
 #position_vector, velocity_vector = update_state()
 
