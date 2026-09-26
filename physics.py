@@ -18,9 +18,9 @@ SUN_RADIUS = 6.957e8 #in m
 MARS_DISTANCE = 1.524*AU
 MARS_MASS = 6.417e23 #in kg
 MARS_RADIUS = 3389.5e3 # in m
-MARS_HILL_RADIUS = MARS_DISTANCE * (MARS_MASS / SUN_MASS) ** (1/3)
+MARS_HILL_RADIUS = MARS_DISTANCE * (MARS_MASS / (3*SUN_MASS)) ** (1/3)
 
-SAIL_AREA = 80 #m^2 #80m^2 approximately using NASA's solar sail from: https://www.nasa.gov/smallspacecraft/what-is-acs3/ 
+SAIL_AREA = 2500 #m^2 #80m^2 approximately using NASA's solar sail from: https://www.nasa.gov/smallspacecraft/what-is-acs3/ 
 MASS = 16 #mass of spacecraft kg from: https://ntrs.nasa.gov/api/citations/20230008378/downloads/Wilkie_ACS3_mission_update_ISSS_2023_20230530_rev_a.pdf 
 R = 0.82 #the fraction of photons that undergo specular reflection
 
@@ -407,11 +407,113 @@ def stage_1_without_history(stage_1_distance, max_time, mars_start_phase):
             return sc_to_mars_vector(), t, "crashed into Sun"
         elif np.linalg.norm(sc_to_mars_vector()) <= MARS_RADIUS:
             return sc_to_mars_vector(), t, "crashed into Mars"
+        elif np.linalg.norm(position_vector) >= MARS_DISTANCE:
+            return sc_to_mars_vector(), t, "overshot Mars"
 
     if np.linalg.norm(sc_to_mars_vector()) <= stage_1_distance:
         return sc_to_mars_vector(), t, "Stage 1 success"
     else:
         return sc_to_mars_vector(), t, "Stage 1 fail under time limit"
+
+
+######################################################################
+"""#https://ntrs.nasa.gov/api/citations/19960035775/downloads/19960035775.pdf 
+def get_osculating_periapsis(position_sc, velocity_sc, position_mars, velocity_mars):
+    r = position_sc - position_mars
+    v = velocity_sc - velocity_mars
+
+    mu = GRAVITATIONAL * MARS_MASS
+    
+    h = np.cross(r, v)
+
+    eccentricity_vec = np.cross(v, h)/mu - r/np.linalg.norm(r)
+
+    e = np.linalg.norm(eccentricity_vec)
+
+    p = np.dot(h,h)/mu
+    rp = p/(1 + e)
+
+    rp_altitude = rp - MARS_RADIUS
+
+    return rp_altitude
+
+def make_prediction(position_sc, velocity_sc, current_time, a_angle, b_angle, dt=100):
+    pos_future = position_sc.copy()
+    vel_future = velocity_sc.copy()
+    time_future = current_time
+
+    pass 
+
+def get_acceleration(position_sc, velocity_sc, position_mars, alpha, beta):
+    distance_from_sun = np.linalg.norm(position_sc)
+    distance_from_mars = np.linalg.norm(position_sc - position_mars)
+
+    to_mars_unit = (position_mars - position_sc) / distance_from_mars
+    to_sun_unit = -position_sc / distance_from_sun
+
+    a_from_sun = (GRAVITATIONAL * SUN_MASS / ( distance_from_sun() ) ** 3 ) * to_sun_unit
+
+    a_from_mars = (GRAVITATIONAL * MARS_MASS / (distance_from_mars ** 2 )) * to_mars_unit
+
+
+
+def steering_algorithm(dt, safe_dist, current_position, current_velocity):
+    safety = safe_dist #+
+
+def to_mars_integrator(stage_1_distance, max_time, mars_start_phase):
+    global position_vector, velocity_vector, mars_position_vector, DT
+    DT = 1000 
+
+    t = 0.0
+    history_trajectory = [
+        np.concatenate([position_vector, velocity_vector, [t]])
+        ]
+        
+
+    mars_position_vector = update_mars_position(0.0, mars_start_phase)
+
+    while t < max_time:
+        next_position, next_velocity = update_state_w_mars()
+
+        position_vector = next_position
+        velocity_vector = next_velocity
+
+        t += DT
+
+        current_state = np.concatenate(
+            [position_vector, velocity_vector, [t]]
+        )
+
+        history_trajectory.append(current_state.copy())
+
+        mars_position_vector = update_mars_position(t, mars_start_phase)
+
+        if np.linalg.norm(position_vector) <= SUN_RADIUS:
+            return history_trajectory, "crashed into Sun"
+        
+        if np.linalg.norm(sc_to_mars_vector()) <= MARS_RADIUS:
+            return history_trajectory, "crashed into Mars"
+
+        if np.linalg.norm(sc_to_mars_vector()) <= stage_1_distance:
+            break
+
+    if np.linalg.norm(sc_to_mars_vector()) > stage_1_distance:
+        return history_trajectory, "stage 1 fail under time limit"
+    
+    DT = 100
+
+    print (
+    position_vector.copy(),
+    velocity_vector.copy(),
+    mars_position_vector.copy(),
+    t,
+    "stage 1 success"
+    )
+    
+    #... add steering algorithm 
+    """
+
+
 
 #position_vector, velocity_vector = update_state()
 
