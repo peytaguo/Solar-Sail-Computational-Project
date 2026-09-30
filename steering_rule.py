@@ -181,13 +181,69 @@ def make_prediction(position_sc, velocity_sc, current_time, mars_start_phase, a_
     vel_future = velocity_sc.copy()
     time_future = current_time
 
-    pass 
+    mars_pos = update_mars_position(time_future, mars_start_phase)
+
+    for i in range(5):
+        new_pos, new_vel = update_state(pos_future, vel_future, mars_pos, a_angle, b_angle, dt)
+        time_future += dt 
+
+        mars_pos = update_mars_position(time_future, mars_start_phase)
+        
+
+        pos_future = new_pos
+        vel_future = new_vel
+    
+    mars_vel = update_mars_velocity(time_future, mars_start_phase)
+
+    return pos_future, vel_future, mars_pos, mars_vel
+
+def steering_algorithm(safe_dist, target, current_position, current_velocity, current_time, mars_start_phase, ca, cb, dt):
+    score = np.inf 
+    best_alpha = None
+    best_beta = None
+
+    highest_op = -np.inf
+    safest_alpha = None
+    safest_beta = None
+
+    for alpha in ca:
+        for beta in cb:
+            pos_future, vel_future, mars_pos, mars_vel = make_prediction(
+                current_position,
+                current_velocity,
+                current_time,
+                mars_start_phase,
+                alpha,
+                beta,
+                dt)
+            op = get_osculating_periapsis(pos_future, vel_future, mars_pos, mars_vel)
+            new_score = get_score(safe_dist, op, target)
+            if op > highest_op:
+                highest_op = op
+                safest_alpha = alpha
+                safest_beta = beta 
+
+            if new_score < score:
+                score = new_score
+                best_alpha = alpha
+                best_beta = beta
+    if best_alpha is None or best_beta is None:
+        best_alpha = safest_alpha
+        best_beta = safest_beta
+
+    return best_alpha, best_beta, score
+
+def get_score(safe_dist, op, target):
+    raw = op - target
+    if op < safe_dist:
+        return np.inf
+    elif op < target:
+        return 3*(target - op)
+    else:
+        return raw 
 
 
-def steering_algorithm(dt, safe_dist, current_position, current_velocity):
-    safety = safe_dist #+
-
-def to_mars_integrator(stage_1_distance, max_time, mars_start_phase, start_pos, start_vel, a_angle, b_angle, dt1=1000, dt2=100):
+def to_mars_integrator(stage_1_distance, max_time, mars_start_phase, start_pos, start_vel, a_angle, b_angle, safe_dist, target, dt1=1000, dt2=100):
 
     t = 0.0
     history_trajectory = [
@@ -237,4 +293,72 @@ def to_mars_integrator(stage_1_distance, max_time, mars_start_phase, start_pos, 
     )
     
     #... add steering algorithm 
+    steering_hist = []
+    ca = np.deg2rad(np.arange(0, 91, 5))
+    cb = np.deg2rad(np.arange(0, 360, 15))
     
+    while t < max_time:
+        best_alpha, best_beta, score = steering_algorithm(
+            safe_dist,
+            target,
+            current_pos_vector,
+            current_vel_vector,
+            t,
+            mars_start_phase,
+            ca,
+            cb,
+            dt2
+        )
+
+        steering_hist.append([
+            best_alpha, best_beta, score, t
+        ])
+
+        next_pos, next_vel = update_state(
+            current_pos_vector,
+            current_vel_vector,
+            mars_position_vector,
+            best_alpha, 
+            best_beta,
+            dt2
+        )
+        current_pos_vector = next_pos
+        current_vel_vector = next_vel
+
+        t += dt2
+
+        mars_position_vector = update_mars_position(
+            t,
+            mars_start_phase
+        )
+
+        mars_velocity_vector = update_mars_velocity(
+            t,
+            mars_start_phase
+        )
+
+        current_state = np.concatenate([
+            current_pos_vector,
+            current_vel_vector,
+            [t]
+        ])
+
+        history_trajectory.append(current_state)
+
+        r_relative = current_pos_vector - mars_position_vector
+        v_relative = current_vel_vector - mars_velocity_vector
+
+        distance_to_mars = np.linalg.norm(r_relative)
+
+        mars_e = (0.5 * np.dot(v_relative, v_relative)) - GRAVITATIONAL * MARS_MASS / distance_to_mars
+
+        if np.linalg.norm(current_pos_vector) <= SUN_RADIUS:
+            return history_trajectory, steering_hist, "crashed into sun"
+
+        if distance_to_mars <= MARS_RADIUS:
+            return history_trajectory, steering_hist, "crashed into mars"
+
+        if mars_e < 0:
+            return history_trajectory, steering_hist, "capture"
+
+    return history_trajectory, steering_hist, "stage 2 failed under time limit"
