@@ -126,11 +126,8 @@ def total_acceleration():
 #calculate both velocity and position vectors first before updating!
 
 #########################################################################################
-#using Euler integration, this will end up having significant numerical errors, 
-#will fix later
-#input:
-#output: the velocity vector of the spacecraft in the next time step 
-#JUST GRAVITY
+
+
 def update_velocity_justg():
     current_velocity = velocity_vector 
     return current_velocity + a_due_to_gravity()*DT

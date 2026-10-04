@@ -186,29 +186,31 @@ def make_prediction(position_sc, velocity_sc, current_time, mars_start_phase, a_
     for i in range(5):
         new_pos, new_vel = update_state(pos_future, vel_future, mars_pos, a_angle, b_angle, dt)
         time_future += dt 
-
-        mars_pos = update_mars_position(time_future, mars_start_phase)
-        
-
         pos_future = new_pos
         vel_future = new_vel
+        mars_pos = update_mars_position(time_future, mars_start_phase)
+
     
     mars_vel = update_mars_velocity(time_future, mars_start_phase)
 
-    return pos_future, vel_future, mars_pos, mars_vel
+    r_relative = pos_future - mars_pos
+    v_relative = vel_future - mars_vel
+                    
+    distance_to_mars = np.linalg.norm(r_relative)
+                    
+    mars_e = (0.5 * np.dot(v_relative, v_relative)) - GRAVITATIONAL * MARS_MASS / distance_to_mars
+
+    return pos_future, vel_future, mars_pos, mars_vel, mars_e
 
 def steering_algorithm(safe_dist, target, current_position, current_velocity, current_time, mars_start_phase, ca, cb, dt):
-    score = np.inf 
-    best_alpha = None
-    best_beta = None
 
-    highest_op = -np.inf
-    safest_alpha = None
-    safest_beta = None
+    ops = []
+    candidates = []
+    energies = []
 
     for alpha in ca:
         for beta in cb:
-            pos_future, vel_future, mars_pos, mars_vel = make_prediction(
+            pos_future, vel_future, mars_pos, mars_vel, mars_e = make_prediction(
                 current_position,
                 current_velocity,
                 current_time,
@@ -216,31 +218,56 @@ def steering_algorithm(safe_dist, target, current_position, current_velocity, cu
                 alpha,
                 beta,
                 dt)
+            
+            candidates.append((alpha, beta))
+
+            energies.append(mars_e)
+
             op = get_osculating_periapsis(pos_future, vel_future, mars_pos, mars_vel)
-            new_score = get_score(safe_dist, op, target)
-            if op > highest_op:
-                highest_op = op
-                safest_alpha = alpha
-                safest_beta = beta 
+            ops.append(op)
 
-            if new_score < score:
-                score = new_score
-                best_alpha = alpha
-                best_beta = beta
-    if best_alpha is None or best_beta is None:
-        best_alpha = safest_alpha
-        best_beta = safest_beta
+    best_alpha, best_beta = select_candidate(candidates, ops, energies, safe_dist, target)
+            
+    return best_alpha, best_beta
 
-    return best_alpha, best_beta, score
+def select_candidate(candidates, ops, energies, safe_dist, target):
+    ops_arr = np.array(ops)
+    energies_arr = np.array(energies)
+    candidates_arr = np.array(candidates)
 
-def get_score(safe_dist, op, target):
+    if max(ops) < safe_dist:
+        c_index = np.argmax(ops_arr)
+        return candidates_arr[c_index]
+
+    target_m = (ops_arr >= safe_dist) & (ops_arr <= target)
+
+    if np.any(target_m):
+        valid = np.where(target_m)[0]
+        c_index = valid[np.argmin(energies_arr[valid])]
+        return candidates_arr[c_index]
+
+    safe_m = ops_arr >= safe_dist
+
+    safe_indices = np.where(safe_m)[0]
+
+    c_index = safe_indices[
+        np.argmin(ops_arr[safe_indices])
+    ]
+    return candidates_arr[c_index]
+
+def get_score(safe_dist, op, target, energy):
+
     raw = op - target
+    energy_penalty = max(energy, 0)/1e7
+
     if op < safe_dist:
         return np.inf
     elif op < target:
-        return 3*(target - op)
+        score =  3*(target - op)/target
     else:
-        return raw 
+        score =  raw /target
+    return score + energy_penalty
+
 
 
 def to_mars_integrator(stage_1_distance, max_time, mars_start_phase, start_pos, start_vel, a_angle, b_angle, safe_dist, target, dt1=1000, dt2=100):
@@ -296,23 +323,47 @@ def to_mars_integrator(stage_1_distance, max_time, mars_start_phase, start_pos, 
     steering_hist = []
     ca = np.deg2rad(np.arange(0, 91, 5))
     cb = np.deg2rad(np.arange(0, 360, 15))
-    
-    while t < max_time:
-        best_alpha, best_beta, score = steering_algorithm(
-            safe_dist,
-            target,
-            current_pos_vector,
-            current_vel_vector,
-            t,
-            mars_start_phase,
-            ca,
-            cb,
-            dt2
-        )
 
-        steering_hist.append([
-            best_alpha, best_beta, score, t
-        ])
+    control = 5
+    step_count = 0
+
+    mars_vel = update_mars_velocity(t, mars_start_phase)
+
+    v_relative = current_vel_vector - mars_vel
+    distance_to_mars = np.linalg.norm(current_pos_vector - mars_position_vector)
+
+    mars_e = (0.5 * np.dot(v_relative, v_relative)) - GRAVITATIONAL * MARS_MASS / distance_to_mars
+    op_current = get_osculating_periapsis(current_pos_vector, current_vel_vector, mars_position_vector, mars_vel)
+
+    while t < max_time:
+        if step_count % control == 0:
+            best_alpha, best_beta = steering_algorithm(
+                safe_dist,
+                target,
+                current_pos_vector,
+                current_vel_vector,
+                t,
+                mars_start_phase,
+                ca,
+                cb,
+                dt2
+            )
+
+            steering_hist.append([
+                best_alpha, best_beta, t
+            ])
+
+            print(
+            "energy: {:.3e} J/kg, angle: ({:.1f}°, {:.1f}°), "
+            "osc. periapsis alt.: {:.1f} km, dist from mars: {:.1f} km, to time limit: {:.4f}".format(
+                mars_e,
+                np.rad2deg(best_alpha),
+                np.rad2deg(best_beta),
+                op_current / 1000,
+                distance_to_mars/1000,
+                t / max_time
+            )
+        )
 
         next_pos, next_vel = update_state(
             current_pos_vector,
@@ -347,11 +398,13 @@ def to_mars_integrator(stage_1_distance, max_time, mars_start_phase, start_pos, 
 
         r_relative = current_pos_vector - mars_position_vector
         v_relative = current_vel_vector - mars_velocity_vector
-
+                
         distance_to_mars = np.linalg.norm(r_relative)
-
+                
         mars_e = (0.5 * np.dot(v_relative, v_relative)) - GRAVITATIONAL * MARS_MASS / distance_to_mars
 
+        op_current = get_osculating_periapsis(current_pos_vector, current_vel_vector, mars_position_vector, mars_velocity_vector)
+        
         if np.linalg.norm(current_pos_vector) <= SUN_RADIUS:
             return history_trajectory, steering_hist, "crashed into sun"
 
@@ -361,4 +414,67 @@ def to_mars_integrator(stage_1_distance, max_time, mars_start_phase, start_pos, 
         if mars_e < 0:
             return history_trajectory, steering_hist, "capture"
 
+        step_count += 1
+
     return history_trajectory, steering_hist, "stage 2 failed under time limit"
+
+
+def total_acceleration_no_mars(position_vector, velocity_vector, a_angle, b_angle):
+    return a_due_to_gravity(
+        position_vector
+        ) + total_force_radiation(
+            position_vector, velocity_vector, a_angle, b_angle
+            ) / MASS
+
+def update_state_no_mars(current_pos, current_vel,  a_angle, b_angle, dt):
+    new_vel = current_vel + total_acceleration_no_mars(current_pos, current_vel, a_angle, b_angle) * dt 
+    new_pos = current_pos + new_vel * dt
+
+    return new_pos, new_vel
+
+
+def stage_1_modified(start_pos, start_vel, a_angle, b_angle, max_time, dt=1000):
+    a_angle = a_angle*math.pi/180
+    b_angle = b_angle*math.pi/180
+    position_vector = start_pos.copy()
+    velocity_vector = start_vel.copy()
+    t = 0.0
+
+    while np.linalg.norm(position_vector) < MARS_DISTANCE and t < max_time:
+
+        new_pos, new_vel = update_state_no_mars(
+            position_vector,
+            velocity_vector,
+            a_angle,
+            b_angle,
+            dt
+        )
+
+        position_vector = new_pos
+        velocity_vector = new_vel
+
+        t += dt
+
+    if np.linalg.norm(position_vector) < MARS_DISTANCE:
+        return np.linalg.norm(position_vector) - MARS_DISTANCE, "did not reach Mars orbital radius"
+
+    theta = np.arctan2(
+        position_vector[1],
+        position_vector[0]
+    )
+
+    mars_speed = np.sqrt(
+        GRAVITATIONAL * SUN_MASS / MARS_DISTANCE
+    )
+
+    mars_velocity_vector = mars_speed * np.array([
+        -np.sin(theta),
+         np.cos(theta),
+         0.0
+    ])
+
+    rel_speed = np.linalg.norm(
+        velocity_vector - mars_velocity_vector
+    )
+
+    return (a_angle*180/math.pi, b_angle*180/math.pi), rel_speed, t/(3600*24), "successful"
