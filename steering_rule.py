@@ -1,6 +1,11 @@
 import numpy as np
 import math
 
+#a lot of the functions defined here are essentially the same as that in physics.py. 
+# The global definitions of position and velocity used in physics.py makes
+# constructing functions such as make_prediction much more difficult to manage,
+# so the corresponding functions are modified here to work with local instead of global variables
+
 #constants and fixed parameters 
 GRAVITATIONAL = 6.6743e-11 #m^3 kg^-1 s^-2
 SPEED_LIGHT = 299792458 #m/s
@@ -183,7 +188,7 @@ def make_prediction(position_sc, velocity_sc, current_time, mars_start_phase, a_
 
     mars_pos = update_mars_position(time_future, mars_start_phase)
 
-    for i in range(5):
+    for i in range(500):
         new_pos, new_vel = update_state(pos_future, vel_future, mars_pos, a_angle, b_angle, dt)
         time_future += dt 
         pos_future = new_pos
@@ -202,14 +207,40 @@ def make_prediction(position_sc, velocity_sc, current_time, mars_start_phase, a_
 
     return pos_future, vel_future, mars_pos, mars_vel, mars_e
 
-def steering_algorithm(safe_dist, target, current_position, current_velocity, current_time, mars_start_phase, ca, cb, dt):
+def steering_algorithm(
+    safe_dist,
+    current_position,
+    current_velocity,
+    current_time,
+    mars_start_phase,
+    ca,
+    cb,
+    dt
+):
 
     ops = []
     candidates = []
     energies = []
 
+    mars_vel_now = update_mars_velocity(
+        current_time,
+        mars_start_phase
+    )
+
+    mars_pos_now = update_mars_position(time=current_time, mars_start_phase=mars_start_phase)
+
+
+    current_op = get_osculating_periapsis(
+                    current_position,
+                    current_velocity,
+                    mars_pos_now,
+                    mars_vel_now
+                )
+    
+
     for alpha in ca:
         for beta in cb:
+
             pos_future, vel_future, mars_pos, mars_vel, mars_e = make_prediction(
                 current_position,
                 current_velocity,
@@ -217,60 +248,69 @@ def steering_algorithm(safe_dist, target, current_position, current_velocity, cu
                 mars_start_phase,
                 alpha,
                 beta,
-                dt)
+                dt
+            )
+
+            op = get_osculating_periapsis(
+                pos_future,
+                vel_future,
+                mars_pos,
+                mars_vel
+            )
             
             candidates.append((alpha, beta))
-
+            ops.append(op)
             energies.append(mars_e)
 
-            op = get_osculating_periapsis(pos_future, vel_future, mars_pos, mars_vel)
-            ops.append(op)
+    best_alpha, best_beta = select_candidate(
+        candidates,
+        ops,
+        current_op,
+        energies,
+        safe_dist
+    )
 
-    best_alpha, best_beta = select_candidate(candidates, ops, energies, safe_dist, target)
-            
     return best_alpha, best_beta
 
-def select_candidate(candidates, ops, energies, safe_dist, target):
+def select_candidate(
+    candidates,
+    ops,
+    current_op, 
+    energies,
+    safe_dist
+):
+
     ops_arr = np.array(ops)
     energies_arr = np.array(energies)
     candidates_arr = np.array(candidates)
 
-    if max(ops) < safe_dist:
-        c_index = np.argmax(ops_arr)
-        return candidates_arr[c_index]
-
-    target_m = (ops_arr >= safe_dist) & (ops_arr <= target)
-
-    if np.any(target_m):
-        valid = np.where(target_m)[0]
-        c_index = valid[np.argmin(energies_arr[valid])]
-        return candidates_arr[c_index]
-
     safe_m = ops_arr >= safe_dist
 
-    safe_indices = np.where(safe_m)[0]
 
-    c_index = safe_indices[
-        np.argmin(ops_arr[safe_indices])
-    ]
+    # Find candidates with safe predicted periapsis
+    safe_m = ops_arr >= safe_dist
+
+    if np.any(safe_m):
+        # Among safe candidates, minimise orbital energy
+        safe_indices = np.where(safe_m)[0]
+
+        c_index = safe_indices[
+            np.argmin(energies_arr[safe_indices])
+        ]
+
+        print("Minimise future o_energy")
+
+    else:
+        # No safe candidates: maximise predicted periapsis
+        c_index = np.argmax(ops_arr)
+
+        print("Prioritise periapsis")
+
     return candidates_arr[c_index]
 
-def get_score(safe_dist, op, target, energy):
 
-    raw = op - target
-    energy_penalty = max(energy, 0)/1e7
-
-    if op < safe_dist:
-        return np.inf
-    elif op < target:
-        score =  3*(target - op)/target
-    else:
-        score =  raw /target
-    return score + energy_penalty
-
-
-
-def to_mars_integrator(stage_1_distance, max_time, mars_start_phase, start_pos, start_vel, a_angle, b_angle, safe_dist, target, dt1=1000, dt2=100):
+#stage 1 and stage 2 combined 
+def to_mars_integrator(stage_1_distance, max_time, mars_start_phase, start_pos, start_vel, a_angle, b_angle, safe_dist, dt1=1000, dt2=100):
 
     t = 0.0
     history_trajectory = [
@@ -321,10 +361,13 @@ def to_mars_integrator(stage_1_distance, max_time, mars_start_phase, start_pos, 
     
     #... add steering algorithm 
     steering_hist = []
-    ca = np.deg2rad(np.arange(0, 91, 5))
-    cb = np.deg2rad(np.arange(0, 360, 15))
+    #ca = np.deg2rad(np.arange(0, 91, 5))
+    #cb = np.deg2rad(np.arange(0, 360, 15))
 
-    control = 5
+    ca = np.deg2rad(np.arange(0, 91, 5))
+    cb = np.deg2rad([0, 180])   
+
+    control = 20
     step_count = 0
 
     mars_vel = update_mars_velocity(t, mars_start_phase)
@@ -335,11 +378,15 @@ def to_mars_integrator(stage_1_distance, max_time, mars_start_phase, start_pos, 
     mars_e = (0.5 * np.dot(v_relative, v_relative)) - GRAVITATIONAL * MARS_MASS / distance_to_mars
     op_current = get_osculating_periapsis(current_pos_vector, current_vel_vector, mars_position_vector, mars_vel)
 
+    energy_lst = []
+    op_lst = []
+    distance_to_mars_lst = []
+    time_lst = []
+
     while t < max_time:
         if step_count % control == 0:
             best_alpha, best_beta = steering_algorithm(
                 safe_dist,
-                target,
                 current_pos_vector,
                 current_vel_vector,
                 t,
@@ -353,6 +400,11 @@ def to_mars_integrator(stage_1_distance, max_time, mars_start_phase, start_pos, 
                 best_alpha, best_beta, t
             ])
 
+            energy_lst.append(mars_e)
+            op_lst.append(op_current/1000)
+            distance_to_mars_lst.append(distance_to_mars/1000)
+            time_lst.append(t)
+
             print(
             "energy: {:.3e} J/kg, angle: ({:.1f}°, {:.1f}°), "
             "osc. periapsis alt.: {:.1f} km, dist from mars: {:.1f} km, to time limit: {:.4f}".format(
@@ -364,6 +416,7 @@ def to_mars_integrator(stage_1_distance, max_time, mars_start_phase, start_pos, 
                 t / max_time
             )
         )
+
 
         next_pos, next_vel = update_state(
             current_pos_vector,
@@ -404,19 +457,20 @@ def to_mars_integrator(stage_1_distance, max_time, mars_start_phase, start_pos, 
         mars_e = (0.5 * np.dot(v_relative, v_relative)) - GRAVITATIONAL * MARS_MASS / distance_to_mars
 
         op_current = get_osculating_periapsis(current_pos_vector, current_vel_vector, mars_position_vector, mars_velocity_vector)
+
         
         if np.linalg.norm(current_pos_vector) <= SUN_RADIUS:
-            return history_trajectory, steering_hist, "crashed into sun"
+            return history_trajectory, steering_hist, energy_lst, op_lst, distance_to_mars, time_lst, "crashed into sun"
 
         if distance_to_mars <= MARS_RADIUS:
-            return history_trajectory, steering_hist, "crashed into mars"
+            return history_trajectory, steering_hist, energy_lst, op_lst, distance_to_mars, time_lst, "crashed into mars"
 
         if mars_e < 0:
-            return history_trajectory, steering_hist, "capture"
+            return history_trajectory, steering_hist, energy_lst, op_lst, distance_to_mars_lst, time_lst, "capture"
 
         step_count += 1
 
-    return history_trajectory, steering_hist, "stage 2 failed under time limit"
+    return history_trajectory, steering_hist, energy_lst, op_lst, distance_to_mars_lst, time_lst, "stage 2 failed under time limit"
 
 
 def total_acceleration_no_mars(position_vector, velocity_vector, a_angle, b_angle):

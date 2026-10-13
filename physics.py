@@ -21,7 +21,7 @@ MARS_RADIUS = 3389.5e3 # in m
 MARS_HILL_RADIUS = MARS_DISTANCE * (MARS_MASS / (3*SUN_MASS)) ** (1/3)
 
 SAIL_AREA = 2500 #m^2 #80m^2 approximately using NASA's solar sail from: https://www.nasa.gov/smallspacecraft/what-is-acs3/ 
-MASS = 16 #mass of spacecraft kg from: https://ntrs.nasa.gov/api/citations/20230008378/downloads/Wilkie_ACS3_mission_update_ISSS_2023_20230530_rev_a.pdf 
+MASS = 25 #mass of spacecraft kg from: https://ntrs.nasa.gov/api/citations/20230008378/downloads/Wilkie_ACS3_mission_update_ISSS_2023_20230530_rev_a.pdf 
 R = 0.82 #the fraction of photons that undergo specular reflection
 
 position_vector = np.array( (AU,0,0) ) #position vector of spacecraft from the sun
@@ -386,11 +386,21 @@ def stage_1(stage_1_distance, max_time, mars_start_phase):
 def stage_1_without_history(stage_1_distance, max_time, mars_start_phase):
     global position_vector, velocity_vector, mars_position_vector
 
-    t = 0.0 
+    t = 0.0
 
-    mars_position_vector = update_mars_position(0.0, mars_start_phase)
+    mars_position_vector = update_mars_position(
+        0.0,
+        mars_start_phase
+    )
 
-    while np.linalg.norm(sc_to_mars_vector()) > stage_1_distance and t < max_time:
+    while t < max_time:
+
+        r_relative = position_vector - mars_position_vector
+        distance_to_mars = np.linalg.norm(r_relative)
+
+        if distance_to_mars <= stage_1_distance:
+            break
+
         next_position, next_velocity = update_state_w_mars()
 
         position_vector = next_position
@@ -398,19 +408,157 @@ def stage_1_without_history(stage_1_distance, max_time, mars_start_phase):
 
         t += DT
 
-        mars_position_vector = update_mars_position(t, mars_start_phase)
+        mars_position_vector = update_mars_position(
+            t,
+            mars_start_phase
+        )
+
+        # Recalculate after timestep
+        r_relative = position_vector - mars_position_vector
+        distance_to_mars = np.linalg.norm(r_relative)
 
         if np.linalg.norm(position_vector) <= SUN_RADIUS:
-            return sc_to_mars_vector(), t, "crashed into Sun"
-        elif np.linalg.norm(sc_to_mars_vector()) <= MARS_RADIUS:
-            return sc_to_mars_vector(), t, "crashed into Mars"
-        elif np.linalg.norm(position_vector) >= MARS_DISTANCE:
-            return sc_to_mars_vector(), t, "overshot Mars"
+            return (
+                None,
+                np.inf,
+                np.inf,
+                r_relative,
+                t,
+                "crashed into Sun"
+            )
 
-    if np.linalg.norm(sc_to_mars_vector()) <= stage_1_distance:
-        return sc_to_mars_vector(), t, "Stage 1 success"
-    else:
-        return sc_to_mars_vector(), t, "Stage 1 fail under time limit"
+        elif distance_to_mars <= MARS_RADIUS:
+            return (
+                None,
+                np.inf,
+                np.inf,
+                r_relative,
+                t,
+                "crashed into Mars"
+            )
+
+        elif distance_to_mars <= stage_1_distance:
+            break
+
+        elif np.linalg.norm(position_vector) >= MARS_DISTANCE:
+            return (
+                None,
+                np.inf,
+                np.inf,
+                r_relative,
+                t,
+                "overshot Mars"
+            )
+
+
+    r_relative = position_vector - mars_position_vector
+    distance_to_mars = np.linalg.norm(r_relative)
+
+    if distance_to_mars > stage_1_distance:
+        return (
+            None,
+            np.inf,
+            np.inf,
+            r_relative,
+            t,
+            "Stage 1 fail under time limit"
+        )
+
+ 
+    mars_velocity_vector = update_mars_velocity(
+        t,
+        mars_start_phase
+    )
+
+    r_relative = position_vector - mars_position_vector
+    v_relative = velocity_vector - mars_velocity_vector
+
+    distance_to_mars = np.linalg.norm(r_relative)
+    rel_speed = np.linalg.norm(v_relative)
+
+    mars_energy = (
+        0.5 * np.dot(v_relative, v_relative)
+        - GRAVITATIONAL * MARS_MASS / distance_to_mars
+    )
+
+    periapsis = get_osculating_periapsis(
+        position_vector,
+        velocity_vector,
+        mars_position_vector,
+        mars_velocity_vector
+    )
+
+    print(
+        "periapsis: {:.1f} km, "
+        "m_energy: {:.3e} J/kg, "
+        "rel_speed: {:.3f} km/s, "
+        "rel_pos: {}, "
+        "t: {:.2f} days".format(
+            periapsis / 1000,
+            mars_energy,
+            rel_speed / 1000,
+            r_relative,
+            t / (24 * 3600)
+        )
+    )
+
+    return (
+        periapsis,
+        mars_energy,
+        rel_speed,
+        r_relative,
+        t,
+        "Stage 1 success"
+    )
+
+def get_osculating_periapsis(position_sc, velocity_sc, position_mars, velocity_mars):
+    r = position_sc - position_mars
+    v = velocity_sc - velocity_mars
+
+    mu = GRAVITATIONAL * MARS_MASS
+    
+    h = np.cross(r, v)
+
+    eccentricity_vec = np.cross(v, h)/mu - r/np.linalg.norm(r)
+
+    e = np.linalg.norm(eccentricity_vec)
+
+    p = np.dot(h,h)/mu
+    rp = p/(1 + e)
+
+    rp_altitude = rp - MARS_RADIUS
+
+    return rp_altitude
+
+"""
+mars_velocity_vector = update_mars_velocity(
+    t,
+    mars_start_phase
+)
+
+r_relative = position_vector - mars_position_vector
+v_relative = velocity_vector - mars_velocity_vector
+
+distance_to_mars = np.linalg.norm(r_relative)
+rel_speed = np.linalg.norm(v_relative)
+
+mars_energy = (
+    0.5 * np.dot(v_relative, v_relative)
+    - GRAVITATIONAL * MARS_MASS / distance_to_mars
+)
+
+periapsis = get_osculating_periapsis(
+    position_vector,
+    velocity_vector,
+    mars_position_vector,
+    mars_velocity_vector
+)
+
+radial_velocity = (
+    np.dot(r_relative, v_relative)
+    / distance_to_mars
+)
+"""
 
 
 ######################################################################
